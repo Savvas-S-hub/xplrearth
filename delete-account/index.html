@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Delete your account · Xplrearth</title>
+  <link rel="icon" href="../assets/favicon.ico">
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <nav class="bar">
+        <a class="brand" href="../"><img src="../assets/glyph-white-256.png" alt="">Xplrearth</a>
+        <div class="links">
+          <a href="../privacy/">Privacy</a>
+          <a href="../terms/">Terms</a>
+          <a href="../delete-account/">Delete account</a>
+        </div>
+      </nav>
+      <div class="page-title">
+        <h1>Delete your account</h1>
+        <p>Without the app, in three steps</p>
+      </div>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="card">
+      <p><strong>What is deleted:</strong> your account, profile, explored map, stats, friends, photos you shared, ratings, badges, saved trips and everything else stored with your account. This happens immediately and can’t be undone. Photos that stayed private were never uploaded, so they stay on your phone.</p>
+      <p class="small">Have the app? You can also delete your account there: Profile → Settings → Your data → Delete account. Need help? <a href="mailto:savvassa18@outlook.com">savvassa18@outlook.com</a></p>
+    </div>
+
+    <div class="card">
+      <div id="step-email" class="step show">
+        <h3>1. Confirm it’s you</h3>
+        <p class="muted">Enter the email address of your Xplrearth account (also if you sign in with Google). We’ll send you a code.</p>
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="email" placeholder="you@example.com">
+        <button id="send" class="primary">Send code</button>
+      </div>
+
+      <div id="step-code" class="step">
+        <h3>2. Enter the code</h3>
+        <p class="muted">We sent a code to <strong id="sent-to"></strong>. It can take a minute; check your spam folder too.</p>
+        <label for="code">Code</label>
+        <input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456">
+        <button id="verify" class="primary">Continue</button>
+        <button id="back" class="ghost">Use another email</button>
+      </div>
+
+      <div id="step-delete" class="step">
+        <h3>3. Delete for good</h3>
+        <p class="muted">Signed in as <strong id="who"></strong>. Type <strong>DELETE</strong> to confirm.</p>
+        <label for="confirm">Confirm</label>
+        <input id="confirm" autocomplete="off" placeholder="DELETE">
+        <button id="delete" class="danger" disabled>Delete my account</button>
+      </div>
+
+      <div id="step-done" class="step">
+        <h3>Your account is deleted</h3>
+        <p class="muted">Everything stored with your account has been removed. You can uninstall the app.</p>
+      </div>
+
+      <div id="msg" class="msg"></div>
+    </div>
+  </main>
+  <footer>
+    <div class="wrap">
+      <a href="../privacy/">Privacy policy</a><a href="../terms/">Terms of Service</a><a href="../delete-account/">Delete your account</a>
+      <p>© 2026 Xplrearth</p>
+    </div>
+  </footer>
+
+  <script type="module">
+    import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2/+esm';
+    // Public values only (the publishable key is meant for apps and web pages).
+    const sb = createClient('https://sbkbbfbcstuhyiyhymfv.supabase.co', 'sb_publishable_JZ8B3qHn1eW9jbuJZIK2bg_pdkdySNN', {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const $ = id => document.getElementById(id);
+    const show = step => {
+      for (const s of ['email', 'code', 'delete', 'done'])
+        $(`step-${s}`).classList.toggle('show', s === step);
+    };
+    const say = (text, ok = false) => {
+      const m = $('msg');
+      m.textContent = text || '';
+      m.className = `msg ${text ? 'show' : ''} ${ok ? 'ok' : 'err'}`;
+    };
+    const busy = (btn, on, label) => {
+      btn.disabled = on;
+      if (label) btn.textContent = label;
+    };
+    let email = '';
+
+    $('send').onclick = async () => {
+      email = $('email').value.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return say('Please enter a valid email address.');
+      say('');
+      busy($('send'), true, 'Sending…');
+      // Only existing accounts get a code: this page never creates one.
+      const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+      busy($('send'), false, 'Send code');
+      if (error && !/signups not allowed|not found/i.test(error.message))
+        return say('Couldn’t send the code. Please try again in a minute.');
+      // Same answer whether or not the account exists (no account lookup by email).
+      $('sent-to').textContent = email;
+      show('code');
+    };
+
+    $('back').onclick = () => { say(''); show('email'); };
+
+    $('verify').onclick = async () => {
+      const token = $('code').value.replace(/\s/g, '');
+      if (!/^\d{6,10}$/.test(token)) return say('Please enter the code from the email.');
+      say('');
+      busy($('verify'), true, 'Checking…');
+      const { data, error } = await sb.auth.verifyOtp({ email, token, type: 'email' });
+      busy($('verify'), false, 'Continue');
+      if (error || !data.session) return say('That code didn’t work. Check it, or send a new one.');
+      $('who').textContent = data.user?.email ?? email;
+      show('delete');
+    };
+
+    $('confirm').oninput = () => { $('delete').disabled = $('confirm').value.trim() !== 'DELETE'; };
+
+    $('delete').onclick = async () => {
+      say('');
+      busy($('delete'), true, 'Deleting…');
+      const { data, error } = await sb.functions.invoke('account', {
+        body: { action: 'delete', confirm: 'DELETE' },
+      });
+      if (error || !data?.deleted) {
+        busy($('delete'), false, 'Delete my account');
+        return say('Something went wrong and nothing was deleted. Please try again, or email us.');
+      }
+      await sb.auth.signOut({ scope: 'local' }).catch(() => {});
+      show('done');
+      say('Done.', true);
+    };
+  </script>
+</body>
+</html>
